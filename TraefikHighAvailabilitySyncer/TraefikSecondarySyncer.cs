@@ -1,0 +1,71 @@
+namespace TraefikHighAvailabilitySyncer;
+
+public class TraefikSecondarySyncer
+{
+    public async Task<IResult> UpdateConfig(TraefikDocker dockerClient, IConfiguration configuration, ILogger<TraefikSecondarySyncer> logger)
+    {
+        // Get endpoint to primary instance
+        var primaryHost = configuration.GetValue<string>("PrimaryHost") 
+                              ?? throw new InvalidOperationException("PrimaryHost is not configured");
+        
+        // Check the health of primary instance
+        using var httpClient = new HttpClient();
+        httpClient.BaseAddress = new Uri(primaryHost);
+        var healthResponse = httpClient.GetAsync("/health").Result;
+        if (!healthResponse.IsSuccessStatusCode)
+        {
+            logger.LogError("/update-config: Primary instance is not healthy. Not updating configuration.");
+            return Results.InternalServerError("Primary instance is not healthy. Not updating configuration.");
+        }
+        
+        // Get the dynamic configuration from the primary instance
+        var dynamicConfigResponse = httpClient.GetAsync("/config/dynamic").Result;
+        if (!dynamicConfigResponse.IsSuccessStatusCode)
+        {
+            logger.LogError("/update-config: Failed to retrieve dynamic configuration from primary instance.");
+            return Results.InternalServerError("Failed to retrieve dynamic configuration from primary instance.");
+        }
+        
+        var dynamicConfigContent = dynamicConfigResponse.Content.ReadAsStringAsync().Result;
+        var configDirectory = configuration.GetValue<string>("TraefikConfigDirectory")
+                              ?? throw new InvalidOperationException("TraefikConfigDirectory is not configured");
+        var dynamicConfigFilePath = Path.Combine(configDirectory, "dynamic.yaml");
+        await File.WriteAllTextAsync(dynamicConfigFilePath, dynamicConfigContent);
+        
+        // Optionally, you can also update the static configuration if needed
+        var staticConfigResponse = httpClient.GetAsync("/config/static").Result;
+        if (!staticConfigResponse.IsSuccessStatusCode)
+        {
+            logger.LogError("/update-config: Failed to retrieve static configuration from primary instance.");
+            return Results.InternalServerError("Failed to retrieve static configuration from primary instance.");
+        }
+        
+        var staticConfigContent = staticConfigResponse.Content.ReadAsStringAsync().Result;
+        var staticConfigFilePath = Path.Combine(configDirectory, "traefik.yaml");
+        await File.WriteAllTextAsync(staticConfigFilePath, staticConfigContent);
+        
+        // Restart the Traefik container to apply the new configuration
+        var containerId = await dockerClient.GetTraefikContainerIdAsync();
+        if (string.IsNullOrEmpty(containerId))
+        {
+            logger.LogError("/update-config: Traefik container not found.");
+            return Results.NotFound("Traefik container not found. Please ensure Traefik is running.");
+        }
+        await dockerClient.RestartTraefikContainerAsync(containerId);
+        
+        // Wait for the Traefik container to become healthy
+        try
+        {
+            dockerClient.WaitForTraefikContainerToBeHealthyAsync(containerId, TimeSpan.FromSeconds(30)).Wait();
+        }
+        catch (TimeoutException e)
+        {
+            logger.LogError("/update-config: Failed to restart traefik container.");
+            return Results.Problem("Traefik container did not become healthy after configuration update.", statusCode: 503);
+        }
+        logger.LogInformation("/update-config: Traefik container restarted and is healthy.");
+        return Results.Ok();
+    }
+    
+    
+}
