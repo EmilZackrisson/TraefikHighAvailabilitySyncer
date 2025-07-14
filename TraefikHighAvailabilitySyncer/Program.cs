@@ -18,13 +18,16 @@ if (builder.Configuration.GetValue<bool>("IsPrimary"))
     builder.Services.AddHostedService<TraefikPrimarySyncer>();
 }
 
-// Add the Traefik Docker client to the service collection.
+
+builder.Services.AddHostedService<SyncerHighAvailability>();
+
+// Register the Docker client for Traefik operations.
 builder.Services.AddSingleton(p =>
 {
     var loggerFactory = p.GetRequiredService<ILoggerFactory>();
     var logger = loggerFactory.CreateLogger<TraefikDocker>();
     var dockerUri = p.GetRequiredService<IConfiguration>().GetValue<string>("DockerUri")
-        ?? throw new InvalidOperationException("DockerUri is not configured");
+                    ?? throw new InvalidOperationException("DockerUri is not configured");
     
     return new TraefikDocker(dockerUri, logger);
 });
