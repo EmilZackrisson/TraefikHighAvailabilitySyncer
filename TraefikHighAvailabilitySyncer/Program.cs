@@ -11,15 +11,14 @@ builder.Services.AddOpenApi();
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 
+builder.Configuration.AddEnvironmentVariables();
+
 // If configured as primary, the service will be used to sync the configuration of Traefik in a high availability setup.
 if (builder.Configuration.GetValue<bool>("IsPrimary"))
 {
     // Register the Traefik primary syncer as a hosted service.
     builder.Services.AddHostedService<TraefikPrimarySyncer>();
 }
-
-
-builder.Services.AddHostedService<SyncerHighAvailability>();
 
 // Register the Docker client for Traefik operations.
 builder.Services.AddSingleton(p =>

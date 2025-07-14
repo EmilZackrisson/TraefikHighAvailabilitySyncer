@@ -1,0 +1,41 @@
+services:
+  syncer:
+    image: ghcr.io/emilzackrisson/traefikhighavailabilitysyncer:main
+    environment:
+      - IsPrimary=true
+      - TraefikConfigDirectory=/etc/traefik
+      - DockerUri=unix:///var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik:/etc/traefik:rw
+        
+  
+  traefik:
+    image: "traefik:v3.4"
+    container_name: "traefik"
+    command:
+      #- "--log.level=DEBUG"
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entryPoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "8080:8080"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./traefik:/etc/traefik:ro"
+    
+  
+  keepalived:
+    image: shawly/keepalived
+    environment:
+      TZ: Europe/Stockholm
+      KEEPALIVED_CUSTOM_CONFIG: true
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_BROADCAST
+    volumes:
+      - ./keepalived/keepalived{master/backup}.conf:/etc/keepalived/keepalived.conf:ro
