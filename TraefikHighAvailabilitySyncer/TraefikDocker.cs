@@ -48,15 +48,27 @@ public class TraefikDocker(string dockerUri, ILogger<TraefikDocker> logger)
         await _client.Containers.RestartContainerAsync(containerId, new ContainerRestartParameters());
     }
     
+    private async Task<string> GetContainerStatusAsync(string containerId)
+    {
+        var container = await _client.Containers.InspectContainerAsync(containerId);
+        if (container == null)
+        {
+            throw new InvalidOperationException($"Container with ID {containerId} not found");
+        }
+        return container.State.Status;
+    }
+    
     public async Task WaitForTraefikContainerToBeHealthyAsync(string containerId, TimeSpan timeout)
     {
         var startTime = DateTime.UtcNow;
+        var status = GetContainerStatusAsync(containerId);
         while (DateTime.UtcNow - startTime < timeout)
         {
             if (await IsTraefikContainerHealthyAsync(containerId))
             {
                 return; // Traefik is healthy
             }
+            logger.LogInformation("Waiting for Traefik container {ContainerId} to become healthy... Current status = {Status}", containerId, status);
             await Task.Delay(1000); // Wait for 1 second before checking again
         }
         throw new TimeoutException($"Traefik container {containerId} did not become healthy within the timeout period.");

@@ -54,9 +54,11 @@ public class TraefikSecondarySyncer
         await dockerClient.RestartTraefikContainerAsync(containerId);
         
         // Wait for the Traefik container to become healthy
+        var dockerHealthyWaitTime = TimeSpan.FromSeconds(configuration.GetValue("TraefikConfigWaitTime", 30));
         try
         {
-            dockerClient.WaitForTraefikContainerToBeHealthyAsync(containerId, TimeSpan.FromSeconds(30)).Wait();
+            logger.LogInformation("Waiting for Traefik container to become healthy after restart.");
+            dockerClient.WaitForTraefikContainerToBeHealthyAsync(containerId, dockerHealthyWaitTime).Wait();
         }
         catch (TimeoutException e)
         {
