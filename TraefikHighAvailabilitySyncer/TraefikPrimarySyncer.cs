@@ -121,7 +121,10 @@ public class TraefikPrimarySyncer(ILogger<TraefikPrimarySyncer> logger, IConfigu
             throw new InvalidOperationException("Traefik container not found");
         }
         
+        logger.LogInformation("Traefik restarting container with ID {ContainerId} to apply new configuration.", containerId);
         await dockerClient.RestartTraefikContainerAsync(containerId);
+        
+        logger.LogInformation("Traefik container restarted. Waiting for it to become healthy...");
         
         // Wait for the Traefik container to become healthy
         var waitTime = TimeSpan.FromSeconds(configuration.GetValue("TraefikConfigWaitTime", 60));
