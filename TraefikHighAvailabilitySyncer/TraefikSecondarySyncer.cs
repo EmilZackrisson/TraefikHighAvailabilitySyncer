@@ -29,7 +29,7 @@ public class TraefikSecondarySyncer
         var dynamicConfigContent = dynamicConfigResponse.Content.ReadAsStringAsync().Result;
         var configDirectory = configuration.GetValue<string>("TraefikConfigDirectory")
                               ?? throw new InvalidOperationException("TraefikConfigDirectory is not configured");
-        var dynamicConfigFilePath = Path.Combine(configDirectory, "dynamic.yaml");
+        var dynamicConfigFilePath = Path.Combine(configDirectory, "dynamic.yml");
         await File.WriteAllTextAsync(dynamicConfigFilePath, dynamicConfigContent);
         
         // Optionally, you can also update the static configuration if needed
@@ -41,7 +41,7 @@ public class TraefikSecondarySyncer
         }
         
         var staticConfigContent = staticConfigResponse.Content.ReadAsStringAsync().Result;
-        var staticConfigFilePath = Path.Combine(configDirectory, "traefik.yaml");
+        var staticConfigFilePath = Path.Combine(configDirectory, "traefik.yml");
         await File.WriteAllTextAsync(staticConfigFilePath, staticConfigContent);
         
         // Restart the Traefik container to apply the new configuration
@@ -60,7 +60,7 @@ public class TraefikSecondarySyncer
         }
         catch (TimeoutException e)
         {
-            logger.LogError("/update-config: Failed to restart traefik container.");
+            logger.LogError(e, "/update-config: Failed to restart traefik container. Timeout.");
             return Results.Problem("Traefik container did not become healthy after configuration update.", statusCode: 503);
         }
         logger.LogInformation("/update-config: Traefik container restarted and is healthy.");

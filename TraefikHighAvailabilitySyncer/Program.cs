@@ -113,6 +113,7 @@ app.MapPost("/update-config", async (IConfiguration configuration, TraefikDocker
             return Results.BadRequest("This endpoint is only available on secondary instances.");
         }
         
+        app.Logger.LogInformation("/update-config: Received request to update configuration on secondary instance.");
         var secondarySyncer = new TraefikSecondarySyncer();
         var result = await secondarySyncer.UpdateConfig(dockerClient, configuration, logger);
         
