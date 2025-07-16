@@ -31,9 +31,11 @@ public class TraefikDocker(string dockerUri, ILogger<TraefikDocker> logger)
     
     public async Task<bool> IsTraefikContainerHealthyAsync(string containerId)
     {
-        var status = await GetContainerStatusAsync(containerId);
-        logger.LogInformation("Container {ContainerId} is healthy", containerId);
-        return status == "healthy";
+        var health = await GetContainerHealthAsync(containerId);
+        
+        logger.LogInformation("Container {ContainerId} health status: {HealthStatus}", containerId, health.Status);
+        
+        return health.Status == "healthy";
     }
     
     public async Task RestartTraefikContainerAsync(string containerId)
@@ -53,6 +55,16 @@ public class TraefikDocker(string dockerUri, ILogger<TraefikDocker> logger)
             throw new InvalidOperationException($"Container with ID {containerId} not found");
         }
         return container.State.Status;
+    }
+    
+    private async Task<Health> GetContainerHealthAsync(string containerId)
+    {
+        var container = await _client.Containers.InspectContainerAsync(containerId);
+        if (container == null)
+        {
+            throw new InvalidOperationException($"Container with ID {containerId} not found");
+        }
+        return container.State.Health;
     }
     
     public async Task WaitForTraefikContainerToBeHealthyAsync(string containerId, TimeSpan timeout)
