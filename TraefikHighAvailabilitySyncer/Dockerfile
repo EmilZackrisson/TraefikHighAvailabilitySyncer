@@ -1,5 +1,6 @@
 ﻿FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
-USER $APP_UID
+RUN groupadd -g 996 docker && gpasswd -a $APP_UID docker
+USER $APP_UID:996
 WORKDIR /app
 EXPOSE 8080
 EXPOSE 8081
