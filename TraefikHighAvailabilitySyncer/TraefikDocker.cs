@@ -67,17 +67,25 @@ public class TraefikDocker(string dockerUri, ILogger<TraefikDocker> logger)
         return container.State.Health;
     }
     
+    /// <summary>
+    /// Waits for the Traefik container to become healthy within a specified timeout period.
+    /// </summary>
+    /// <param name="containerId">The ID of the Traefik container to monitor.</param>
+    /// <param name="timeout">The maximum amount of time to wait for the container to become healthy.</param>
+    /// <exception cref="TimeoutException">
+    /// Thrown if the Traefik container does not become healthy within the specified timeout period.
+    /// </exception>
     public async Task WaitForTraefikContainerToBeHealthyAsync(string containerId, TimeSpan timeout)
     {
         var startTime = DateTime.UtcNow;
-        var status = await GetContainerStatusAsync(containerId);
+        var health = await GetContainerHealthAsync(containerId);
         while (DateTime.UtcNow - startTime < timeout)
         {
             if (await IsTraefikContainerHealthyAsync(containerId))
             {
                 return; // Traefik is healthy
             }
-            logger.LogInformation("Waiting for Traefik container {ContainerId} to become healthy... Current status = {Status}", containerId, status);
+            logger.LogInformation("Waiting for Traefik container {ContainerId} to become healthy... Current status = {Status}", containerId, health.Status);
             await Task.Delay(1000); // Wait for 1 second before checking again
         }
         throw new TimeoutException($"Traefik container {containerId} did not become healthy within the timeout period.");

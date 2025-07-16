@@ -51,14 +51,18 @@ public class TraefikSecondarySyncer
             logger.LogError("/update-config: Traefik container not found.");
             return Results.NotFound("Traefik container not found. Please ensure Traefik is running.");
         }
+        logger.LogInformation("/update-config: Restarting Traefik container with ID {ContainerId} to apply new configuration.", containerId);
         await dockerClient.RestartTraefikContainerAsync(containerId);
         
         // Wait for the Traefik container to become healthy
-        var dockerHealthyWaitTime = TimeSpan.FromSeconds(configuration.GetValue("TraefikConfigWaitTime", 30));
+        var dockerHealthyWaitTime = TimeSpan.FromSeconds(configuration.GetValue("TraefikConfigWaitTime", 60));
         try
         {
             logger.LogInformation("Waiting for Traefik container to become healthy after restart.");
+            var startTime = DateTime.UtcNow;
             dockerClient.WaitForTraefikContainerToBeHealthyAsync(containerId, dockerHealthyWaitTime).Wait();
+            var elapsedTime = DateTime.UtcNow - startTime;
+            logger.LogInformation("Traefik container became healthy after {ElapsedTime} seconds.", elapsedTime.TotalSeconds);
         }
         catch (TimeoutException e)
         {
