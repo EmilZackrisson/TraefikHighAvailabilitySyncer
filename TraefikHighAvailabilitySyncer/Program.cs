@@ -35,14 +35,12 @@ builder.Services.AddSingleton(p =>
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("EnableOpenApi"))
 {
     app.MapOpenApi();
     app.MapScalarApiReference();
     app.Logger.LogInformation("Scalar API reference is available at /scalar/v1");
 }
-
-app.UseHttpsRedirection();
 
 // Redirect root to /scalar/v1
 app.MapGet("/", () => Results.Redirect("/scalar/v1"))
@@ -53,9 +51,11 @@ app.MapGet("/config/dynamic", (IConfiguration configuration) =>
         // Get the file path to the dynamic configuration file
         var configDirectory = configuration.GetValue<string>("TraefikConfigDirectory")
             ?? throw new InvalidOperationException("TraefikConfigDirectory is not configured");
-        var dynamicConfigFilePath = Path.Combine(configDirectory, "dynamic.yaml");
+        var dynamicConfigFilePath = Path.Combine(configDirectory, "dynamic.yml");
+        
         if (!File.Exists(dynamicConfigFilePath))
         {
+            app.Logger.LogDebug("Did not find dynamic configuration file at {DynamicConfigFilePath}", dynamicConfigFilePath);
             return Results.NotFound("Dynamic configuration file not found.");
         }
         
@@ -72,14 +72,15 @@ app.MapGet("/config/static", (IConfiguration configuration) =>
         // Get the file path to the dynamic configuration file
         var configDirectory = configuration.GetValue<string>("TraefikConfigDirectory")
                               ?? throw new InvalidOperationException("TraefikConfigDirectory is not configured");
-        var dynamicConfigFilePath = Path.Combine(configDirectory, "traefik.yaml");
-        if (!File.Exists(dynamicConfigFilePath))
+        var staticConfigFilePath = Path.Combine(configDirectory, "traefik.yml");
+        if (!File.Exists(staticConfigFilePath))
         {
+            app.Logger.LogDebug("Did not find static configuration file at {StaticConfigFilePath}", staticConfigFilePath);
             return Results.NotFound("Static configuration file not found.");
         }
         
         // Load the dynamic configuration from the file
-        var staticConfigContent = File.ReadAllText(dynamicConfigFilePath);
+        var staticConfigContent = File.ReadAllText(staticConfigFilePath);
         
         // Return the dynamic configuration content
         return Results.Text(staticConfigContent, "application/x-yaml");
