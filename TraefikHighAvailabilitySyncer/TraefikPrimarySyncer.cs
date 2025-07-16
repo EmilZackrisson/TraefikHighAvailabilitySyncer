@@ -33,7 +33,7 @@ public class TraefikPrimarySyncer(ILogger<TraefikPrimarySyncer> logger, IConfigu
     private async void OnChanged(object source, FileSystemEventArgs e)
     {
         if (e.Name == null) return;
-        if (!e.Name.EndsWith(".yaml"))
+        if (!e.Name.EndsWith(".yaml") && !e.Name.EndsWith(".yml"))
         {
             return; // Only process YAML files
         }

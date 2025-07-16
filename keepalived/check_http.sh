@@ -1,6 +1,6 @@
 #!/bin/bash
 
-curl -s --max-time 2 http://localhost:80 > /dev/null
+curl -s --max-time 2 http://syncer:8080 > /dev/null
 if [ $? -ne 0 ]; then
     exit 1
 fi
