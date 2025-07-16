@@ -32,9 +32,11 @@ public class TraefikPrimarySyncer(ILogger<TraefikPrimarySyncer> logger, IConfigu
     
     private async void OnChanged(object source, FileSystemEventArgs e)
     {
+        logger.LogDebug("FileSystemWatcher triggered for file: {FileName}", e.Name);
         if (e.Name == null) return;
         if (!e.Name.EndsWith(".yaml") && !e.Name.EndsWith(".yml"))
         {
+            logger.LogDebug("File {FileName} is not a YAML file. Ignoring change.", e.Name);
             return; // Only process YAML files
         }
         
@@ -49,8 +51,14 @@ public class TraefikPrimarySyncer(ILogger<TraefikPrimarySyncer> logger, IConfigu
             return; // Exit if Traefik is not healthy
         }
         
-        var secondaryInstances = configuration.GetSection("SecondaryInstances").Get<string[]>() 
+        var secondaryInstances = configuration.GetValue<string>("SecondaryInstances")?.Split(",").Select(s => s.Trim()).ToList()
                              ?? throw new InvalidOperationException("SecondaryInstances is not configured");
+        
+        if (secondaryInstances.Count == 0)
+        {
+            logger.LogWarning("No secondary instances configured. Skipping configuration update.");
+            return; // No secondary instances to notify
+        }
         
         using var httpClient = new HttpClient();
         
@@ -90,7 +98,7 @@ public class TraefikPrimarySyncer(ILogger<TraefikPrimarySyncer> logger, IConfigu
         await dockerClient.RestartTraefikContainerAsync(containerId);
         
         // Wait for the Traefik container to become healthy
-        var waitTime = TimeSpan.FromSeconds(30);
+        var waitTime = TimeSpan.FromSeconds(configuration.GetValue("TraefikConfigWaitTime", 60));
         var startTime = DateTime.UtcNow;
         while (DateTime.UtcNow - startTime < waitTime)
         {
@@ -100,7 +108,7 @@ public class TraefikPrimarySyncer(ILogger<TraefikPrimarySyncer> logger, IConfigu
                 return true; // Traefik is healthy
             }
             logger.LogInformation("Waiting for Traefik container to become healthy... Trying again in 5 seconds.");
-            await Task.Delay(5000); // Wait for 5 seconds before checking again
+            await Task.Delay(1000); // Wait for 5 seconds before checking again
         }
         
         logger.LogCritical("Traefik container did not become healthy within the expected time frame.");
