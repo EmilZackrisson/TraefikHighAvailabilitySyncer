@@ -7,6 +7,7 @@ public class TraefikPrimarySyncer(ILogger<TraefikPrimarySyncer> logger, IConfigu
     private CancellationTokenSource? _cts;
     private Task? _pollingTask;
     private readonly ConcurrentDictionary<string, DateTime> _fileTimestamps = new();
+    private bool firstRun = true;
 
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -21,6 +22,7 @@ public class TraefikPrimarySyncer(ILogger<TraefikPrimarySyncer> logger, IConfigu
     {
         logger.LogInformation("Stopping TraefikPrimarySyncer");
         _cts?.Cancel();
+        _cts?.Dispose();
         return _pollingTask ?? Task.CompletedTask;
     }
 
@@ -30,46 +32,62 @@ public class TraefikPrimarySyncer(ILogger<TraefikPrimarySyncer> logger, IConfigu
         while (!token.IsCancellationRequested)
         {
             var files = Directory.GetFiles(directory, "*.yml").Concat(Directory.GetFiles(directory, "*.yaml"));
+            var changedFiles = new List<string>();
+
             foreach (var file in files)
             {
                 var lastWrite = File.GetLastWriteTimeUtc(file);
                 if (!_fileTimestamps.TryGetValue(file, out var prevWrite) || lastWrite > prevWrite)
                 {
+                    if (firstRun)
+                    {
+                        continue;
+                    }
                     _fileTimestamps[file] = lastWrite;
-                    logger.LogInformation("Configuration file changed: {FileName}", Path.GetFileName(file));
-                    await OnConfigFileChangedAsync(file);
+                    changedFiles.Add(file);
                 }
             }
+
+            firstRun = false; // After the first run, we start checking for changes
+
+            if (changedFiles.Count > 0)
+            {
+                logger.LogInformation("Configuration files changed: {Files}", string.Join(", ", changedFiles.Select(Path.GetFileName)));
+                await OnConfigFilesChangedAsync(changedFiles);
+            }
+
             await Task.Delay(1000, token); // Poll every second
         }
     }
     
-    private async Task OnConfigFileChangedAsync(string file)
+    private async Task OnConfigFilesChangedAsync(List<string> files)
     {
-        logger.LogDebug("FileSystemWatcher triggered for file: {FileName}", file);
-        
-        logger.LogInformation("Configuration file changed: {FileName}", file);
-        
+        foreach (var file in files)
+        {
+            logger.LogDebug("FileSystemWatcher triggered for file: {FileName}", file);
+            logger.LogInformation("Configuration file changed: {FileName}", file);
+        }
+
         // Restart the Traefik container to apply the new configuration and wait for it to become healthy.
         var healthyAfterRestart = await ApplyConfigurationAndCheckHealthAsync();
-        
+
         if (!healthyAfterRestart)
         {
             logger.LogCritical("Traefik container did not become healthy after configuration change. Not updating secondary instances.");
             return; // Exit if Traefik is not healthy
         }
-        
+
         var secondaryInstances = configuration.GetValue<string>("SecondaryInstances")?.Split(",").Select(s => s.Trim()).ToList()
                              ?? throw new InvalidOperationException("SecondaryInstances is not configured");
-        
+
         if (secondaryInstances.Count == 0)
         {
             logger.LogWarning("No secondary instances configured. Skipping configuration update.");
             return; // No secondary instances to notify
         }
-        
+
         using var httpClient = new HttpClient();
-        
+
         // Tell each secondary instance to update its configuration
         foreach (var instance in secondaryInstances)
         {
@@ -77,7 +95,7 @@ public class TraefikPrimarySyncer(ILogger<TraefikPrimarySyncer> logger, IConfigu
             {
                 logger.LogInformation("Sending configuration update request to {Instance}", instance);
                 httpClient.BaseAddress = new Uri(instance);
-                
+
                 var response = httpClient.PostAsync("/update-config", null).Result;
                 if (response.IsSuccessStatusCode)
                 {
