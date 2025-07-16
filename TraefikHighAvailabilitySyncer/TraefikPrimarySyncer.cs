@@ -1,46 +1,54 @@
+using System.Collections.Concurrent;
+
 namespace TraefikHighAvailabilitySyncer;
 
 public class TraefikPrimarySyncer(ILogger<TraefikPrimarySyncer> logger, IConfiguration configuration, TraefikDocker dockerClient) : IHostedService 
 {
-    private FileSystemWatcher? _watcher;
+    private CancellationTokenSource? _cts;
+    private Task? _pollingTask;
+    private readonly ConcurrentDictionary<string, DateTime> _fileTimestamps = new();
+
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        logger.LogInformation("TraefikPrimarySyncer started");
-        
-        // Initialize the file system watcher to monitor changes in the Traefik configuration directory.
-        _watcher = new FileSystemWatcher(configuration.GetValue<string>("TraefikConfigDirectory") ?? throw new InvalidOperationException("TraefikConfigDirectory is not configured"));
-        
-        _watcher.NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.DirectoryName;
-        
-        _watcher.Changed += OnChanged;
+        logger.LogInformation("TraefikPrimarySyncer started (polling mode)");
+        _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _pollingTask = Task.Run(() => PollDirectoryAsync(_cts.Token), cancellationToken);
         return Task.CompletedTask;
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
         logger.LogInformation("Stopping TraefikPrimarySyncer");
-        if (_watcher == null)
+        _cts?.Cancel();
+        return _pollingTask ?? Task.CompletedTask;
+    }
+
+    private async Task PollDirectoryAsync(CancellationToken token)
+    {
+        var directory = configuration.GetValue<string>("TraefikConfigDirectory") ?? throw new InvalidOperationException("TraefikConfigDirectory is not configured");
+        while (!token.IsCancellationRequested)
         {
-            logger.LogWarning("FileSystemWatcher is not initialized. Cannot stop.");
-            return Task.CompletedTask;
+            var files = Directory.GetFiles(directory, "*.yml").Concat(Directory.GetFiles(directory, "*.yaml"));
+            foreach (var file in files)
+            {
+                var lastWrite = File.GetLastWriteTimeUtc(file);
+                if (!_fileTimestamps.TryGetValue(file, out var prevWrite) || lastWrite > prevWrite)
+                {
+                    _fileTimestamps[file] = lastWrite;
+                    logger.LogInformation("Configuration file changed: {FileName}", Path.GetFileName(file));
+                    await OnConfigFileChangedAsync(file);
+                }
+            }
+            await Task.Delay(1000, token); // Poll every second
         }
-        
-        _watcher.Dispose();
-        logger.LogInformation("TraefikPrimarySyncer stopped");
-        return Task.CompletedTask;
     }
     
-    private async void OnChanged(object source, FileSystemEventArgs e)
+    private async Task OnConfigFileChangedAsync(string file)
     {
-        logger.LogDebug("FileSystemWatcher triggered for file: {FileName}", e.Name);
-        if (e.Name == null) return;
-        if (!e.Name.EndsWith(".yaml") && !e.Name.EndsWith(".yml"))
-        {
-            logger.LogDebug("File {FileName} is not a YAML file. Ignoring change.", e.Name);
-            return; // Only process YAML files
-        }
+        logger.LogDebug("FileSystemWatcher triggered for file: {FileName}", file);
         
-        logger.LogInformation("Configuration file changed: {FileName}", e.Name);
+        logger.LogInformation("Configuration file changed: {FileName}", file);
         
         // Restart the Traefik container to apply the new configuration and wait for it to become healthy.
         var healthyAfterRestart = await ApplyConfigurationAndCheckHealthAsync();
